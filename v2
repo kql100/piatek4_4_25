@@ -1,0 +1,1667 @@
+import React, { useState, useRef, useEffect } from "react";
+import TextareaAutosize from "react-textarea-autosize";
+
+const initialTables = [
+  { name: "OfficeActivity", comment: "// table name_is_OfficeActivity" },
+  { name: "SigninLogs", comment: "// table name_is_SigninLogs" },
+  { name: "AuditLogs", comment: "// table name_is_AuditLogs" },
+];
+
+export default function QueryBuilder() {
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalQueryText, setModalQueryText] = useState("");
+  const [selectedTables, setSelectedTables] = useState([]);
+  const [searchValue, setSearchValue] = useState("");
+  const [tables, setTables] = useState(() => {
+    const saved = localStorage.getItem("kqltool_tables");
+    return saved ? JSON.parse(saved) : initialTables;
+  });
+  const [customQueries, setCustomQueries] = useState({});
+  const [newTableName, setNewTableName] = useState("");
+  const [newTableQuery, setNewTableQuery] = useState("");
+  const [showPopup, setShowPopup] = useState(false);
+  const [copiedResult, setCopiedResult] = useState("");
+  const [externalTablesContent, setExternalTablesContent] = useState({});
+  const [favoriteQueries, setFavoriteQueries] = useState({});
+  const [selectedFavorite, setSelectedFavorite] = useState({});
+  const [customFavoriteNames, setCustomFavoriteNames] = useState({});
+  const [customTiles, setCustomTiles] = useState([]);
+  const [showAddTileModal, setShowAddTileModal] = useState(false);
+  const [newTileName, setNewTileName] = useState("");
+  const [newTileQuery, setNewTileQuery] = useState("");
+  const [editingTile, setEditingTile] = useState(null);
+  const [favoriteDropdown, setFavoriteDropdown] = useState({});
+  const [dropdownFilter, setDropdownFilter] = useState("");
+  const [favoritesSearch, setFavoritesSearch] = useState("");
+  const sidebarWidth = "400px";
+  const [timeInterval, setTimeInterval] = useState("24h");
+  const [applyTimeFilter, setApplyTimeFilter] = useState(false);
+  const [eventFilterSettings, setEventFilterSettings] = useState({});
+  const [eventFilterModal, setEventFilterModal] = useState({
+    visible: false,
+    tableName: "",
+    queryIndex: null,
+    eventTime: new Date().toISOString().slice(0, 19).replace("T", " "),
+    offsetBefore: 2,
+    offsetAfter: 2,
+  });
+  const [tagModalData, setTagModalData] = useState({
+    visible: false,
+    tableName: "",
+    queryIndex: null,
+    customName: "",
+    tags: [],
+  });
+  const [currentTag, setCurrentTag] = useState("");
+  const [showSettingsPanel, setShowSettingsPanel] = useState(false);
+  const [showGuide, setShowGuide] = useState(() => {
+    const saved = localStorage.getItem("kqltool_showGuide");
+    return saved ? JSON.parse(saved) : true;
+  });
+  const [settingsData, setSettingsData] = useState("");
+  const [settingsURL, setSettingsURL] = useState("");
+  const [showGeneratedQuery, setShowGeneratedQuery] = useState(true);
+
+  // New state variables for resizable Add New Quick Query modal
+  const tileModalRef = useRef(null);
+  const [tileModalSize, setTileModalSize] = useState({
+    width: 800,
+    height: 600,
+  });
+  const [isTileResizing, setIsTileResizing] = useState(false);
+
+  useEffect(() => {
+    setTileModalSize({
+      width: window.innerWidth - 100,
+      height: window.innerHeight - 100,
+    });
+  }, []);
+
+  const tablesContainerRef = useRef(null);
+  const modalTextRef = useRef(null);
+  const dragItem = useRef(null);
+  const dragOverItem = useRef(null);
+
+  useEffect(() => {
+    const savedState = localStorage.getItem("kqltool_state");
+    if (savedState) {
+      const state = JSON.parse(savedState);
+      if (state.selectedTables) setSelectedTables(state.selectedTables);
+      if (state.customQueries) setCustomQueries(state.customQueries);
+      if (state.favoriteQueries) setFavoriteQueries(state.favoriteQueries);
+      if (state.customFavoriteNames)
+        setCustomFavoriteNames(state.customFavoriteNames);
+      if (state.eventFilterSettings)
+        setEventFilterSettings(state.eventFilterSettings);
+      if (state.timeInterval) setTimeInterval(state.timeInterval);
+      if (state.applyTimeFilter !== undefined)
+        setApplyTimeFilter(state.applyTimeFilter);
+      if (state.customTiles) setCustomTiles(state.customTiles);
+    }
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem(
+      "kqltool_state",
+      JSON.stringify({
+        selectedTables,
+        customQueries,
+        favoriteQueries,
+        customFavoriteNames,
+        eventFilterSettings,
+        timeInterval,
+        applyTimeFilter,
+        customTiles,
+      })
+    );
+  }, [
+    selectedTables,
+    customQueries,
+    favoriteQueries,
+    customFavoriteNames,
+    eventFilterSettings,
+    timeInterval,
+    applyTimeFilter,
+    customTiles,
+  ]);
+
+  useEffect(() => {
+    localStorage.setItem("kqltool_tables", JSON.stringify(tables));
+  }, [tables]);
+
+  useEffect(() => {
+    localStorage.setItem("kqltool_showGuide", JSON.stringify(showGuide));
+  }, [showGuide]);
+
+  const defineTablesFromEnv = () => setShowPopup(true);
+  const closePopup = () => {
+    setShowPopup(false);
+    setCopiedResult("");
+  };
+  const handleAddTables = () => {
+    setShowPopup(false);
+    setCopiedResult("");
+  };
+  const handleCloseModalOnClickOutside = (closeFunc) => (e) => {
+    closeFunc();
+  };
+
+  useEffect(() => {
+    const handleClickOutsideFavoriteDropdown = (e) => {
+      if (!e.target.closest(".favorite-dropdown")) {
+        setFavoriteDropdown({});
+      }
+    };
+    document.addEventListener("click", handleClickOutsideFavoriteDropdown);
+    return () => {
+      document.removeEventListener("click", handleClickOutsideFavoriteDropdown);
+    };
+  }, []);
+
+  const handleTagInputKeyDown = (e) => {
+    if (e.key === "Enter" && currentTag.trim()) {
+      e.preventDefault();
+      if (tagModalData.tags.length < 3) {
+        setTagModalData((prev) => ({
+          ...prev,
+          tags: [...prev.tags, currentTag.trim()],
+        }));
+        setCurrentTag("");
+      }
+    }
+  };
+
+  const handleAddTag = () => {
+    const { tableName, queryIndex, tags, customName } = tagModalData;
+    setCustomFavoriteNames((prev) => ({
+      ...prev,
+      [tableName]: {
+        ...(prev[table.name] || {}),
+        [queryIndex]: { customName: customName.trim(), tags },
+      },
+    }));
+    setTagModalData({
+      visible: false,
+      tableName: "",
+      queryIndex: null,
+      customName: "",
+      tags: [],
+    });
+    setCurrentTag("");
+  };
+
+  const toggleFavoriteQuery = (tableName, queryIndex) => {
+    setFavoriteQueries((prev) => {
+      const currentFavs = prev[tableName] || [];
+      if (currentFavs.includes(queryIndex)) {
+        setCustomFavoriteNames((prevNames) => {
+          const newObj = { ...prevNames };
+          if (newObj[tableName]) {
+            delete newObj[tableName][queryIndex];
+          }
+          return newObj;
+        });
+        return {
+          ...prev,
+          [tableName]: currentFavs.filter((i) => i !== queryIndex),
+        };
+      } else {
+        setTagModalData({
+          visible: true,
+          tableName,
+          queryIndex,
+          customName: "",
+          tags: [],
+        });
+        setCurrentTag("");
+        return { ...prev, [tableName]: [...currentFavs, queryIndex] };
+      }
+    });
+  };
+
+  const handleSettingsDataChange = (e) => {
+    setSettingsData(e.target.value);
+  };
+
+  const handleImportSettings = () => {
+    try {
+      const imported = JSON.parse(settingsData);
+      setTables(imported.tables || initialTables);
+      setSelectedTables(imported.selectedTables || []);
+      setCustomQueries(imported.customQueries || {});
+      setFavoriteQueries(imported.favoriteQueries || {});
+      setCustomFavoriteNames(imported.customFavoriteNames || {});
+      setEventFilterSettings(imported.eventFilterSettings || {});
+      setTimeInterval(imported.timeInterval || "24h");
+      setApplyTimeFilter(imported.applyTimeFilter || false);
+      if (imported.showGuide !== undefined) {
+        setShowGuide(imported.showGuide);
+      }
+    } catch (error) {
+      console.error(
+        "Import error – please check that the JSON is valid.",
+        error
+      );
+    }
+  };
+
+  const handleDownloadSettings = () => {
+    const settings = {
+      tables,
+      selectedTables,
+      customQueries,
+      favoriteQueries,
+      customFavoriteNames,
+      eventFilterSettings,
+      timeInterval,
+      applyTimeFilter,
+      showGuide,
+    };
+    const blob = new Blob([JSON.stringify(settings, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "queryBuilderSettings.json";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const clearAllSettings = () => {
+    localStorage.clear();
+    setTables(initialTables);
+    setSelectedTables([]);
+    setCustomQueries({});
+    setFavoriteQueries({});
+    setCustomFavoriteNames({});
+    setEventFilterSettings({});
+    setTimeInterval("24h");
+    setApplyTimeFilter(false);
+    setShowGuide(true);
+  };
+
+  const handleLoadFromURL = () => {
+    if (!settingsURL.trim()) {
+      console.error("Please enter a valid URL.");
+      return;
+    }
+    fetch(settingsURL)
+      .then((res) => res.json())
+      .then((imported) => {
+        setTables(imported.tables || initialTables);
+        setSelectedTables(imported.selectedTables || []);
+        setCustomQueries(imported.customQueries || {});
+        setFavoriteQueries(imported.favoriteQueries || {});
+        setCustomFavoriteNames(imported.customFavoriteNames || {});
+        setEventFilterSettings(imported.eventFilterSettings || {});
+        setTimeInterval(imported.timeInterval || "24h");
+        setApplyTimeFilter(imported.applyTimeFilter || false);
+        if (imported.showGuide !== undefined) {
+          setShowGuide(imported.showGuide);
+        }
+      })
+      .catch((error) => {
+        console.error("Failed to load settings from URL.", error);
+      });
+  };
+
+  useEffect(() => {
+    const apiUrl =
+      "https://api.github.com/repos/Kingsmill80000/kqltest1/contents";
+    fetch(apiUrl)
+      .then((response) => response.json())
+      .then((data) => {
+        data.forEach((item) => {
+          if (item.type === "file") {
+            setTables((prev) => {
+              if (!prev.some((t) => t.name === item.name)) {
+                return [
+                  ...prev,
+                  { name: item.name, comment: `// table name_is_${item.name}` },
+                ];
+              }
+              return prev;
+            });
+            fetch(item.download_url)
+              .then((res) => res.text())
+              .then((content) => {
+                setExternalTablesContent((prev) => ({
+                  ...prev,
+                  [item.name]: content,
+                }));
+              })
+              .catch((error) =>
+                console.error(`Error fetching ${item.name}:`, error)
+              );
+          }
+        });
+      })
+      .catch((error) =>
+        console.error("Error fetching directory from GitHub:", error)
+      );
+  }, []);
+
+  useEffect(() => {
+    if (modalOpen && modalTextRef.current) {
+      modalTextRef.current.focus();
+      modalTextRef.current.select();
+    }
+  }, [modalOpen, modalQueryText]);
+
+  useEffect(() => {
+    const handleEsc = (e) => {
+      if (e.key === "Escape") {
+        setFavoriteDropdown({});
+        setShowPopup(false);
+        closeModal();
+        setTagModalData({
+          visible: false,
+          tableName: "",
+          queryIndex: null,
+          customName: "",
+          tags: [],
+        });
+        setEventFilterModal((prev) => ({ ...prev, visible: false }));
+        setShowAddTileModal(false);
+      }
+    };
+    document.addEventListener("keydown", handleEsc);
+    return () => document.removeEventListener("keydown", handleEsc);
+  }, []);
+
+  useEffect(() => {
+    const handleMouseMove = (e) => {
+      if (!isTileResizing || !tileModalRef.current) return;
+      const rect = tileModalRef.current.getBoundingClientRect();
+      const newWidth = Math.max(800, e.clientX - rect.left);
+      const newHeight = Math.max(600, e.clientY - rect.top);
+      setTileModalSize({ width: newWidth, height: newHeight });
+    };
+    const handleMouseUp = () => {
+      if (isTileResizing) {
+        setIsTileResizing(false);
+      }
+    };
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [isTileResizing]);
+
+  const addNewTable = () => {
+    if (!newTableName.trim()) return;
+    const tableExists = tables.some((t) => t.name === newTableName);
+    if (!tableExists) {
+      setTables([
+        ...tables,
+        { name: newTableName, comment: `// table name_is_${newTableName}` },
+      ]);
+    }
+    if (newTableQuery.trim()) {
+      setCustomQueries((prev) => {
+        if (prev[newTableName]) {
+          return {
+            ...prev,
+            [newTableName]: prev[newTableName] + "\n" + newTableQuery.trim(),
+          };
+        }
+        return { ...prev, [newTableName]: newTableQuery.trim() };
+      });
+    }
+    setSelectedTables((prev) =>
+      prev.includes(newTableName) ? prev : [...prev, newTableName]
+    );
+    setNewTableName("");
+    setNewTableQuery("");
+  };
+
+  const getBaseQuery = (tableName) => {
+    if (customQueries[tableName]) {
+      let query = customQueries[tableName].trim();
+      query = query.replace(/\| search\s*""/g, `| search "${searchValue}"`);
+      return query;
+    }
+    return `${tableName}\n| search "${searchValue}"`;
+  };
+
+  const getQueryWithTimeFilter = (query, tableName, queryIndex) => {
+    const settings =
+      eventFilterSettings[tableName] &&
+      eventFilterSettings[tableName][queryIndex];
+    if (settings) {
+      const { eventTime, offsetBefore, offsetAfter } = settings;
+      const letClause = `let Time = datetime(${eventTime});\n`;
+      const tableLine = tableName;
+      const searchLine = `| search "${searchValue}"`;
+      const whereLine = `| where TimeGenerated between (datetime_add('minute', -${offsetBefore}, Time) .. datetime_add('minute', +${offsetAfter}, Time))`;
+      return letClause + tableLine + "\n" + searchLine + "\n" + whereLine;
+    } else if (applyTimeFilter) {
+      const searchIndex = query.indexOf("| search");
+      if (searchIndex !== -1) {
+        const beforeSearch = query.slice(0, searchIndex).trimEnd();
+        const afterSearch = query.slice(searchIndex).trimStart();
+        let newQuery =
+          beforeSearch +
+          "\n| where TimeGenerated >= ago(" +
+          timeInterval +
+          ")\n" +
+          afterSearch;
+        if (newQuery.includes('| search ""') && searchValue.trim() !== "") {
+          newQuery = newQuery.replace(
+            '| search ""',
+            `| search "${searchValue}"`
+          );
+        }
+        return newQuery;
+      } else {
+        return (
+          query.trim() + "\n| where TimeGenerated >= ago(" + timeInterval + ")"
+        );
+      }
+    }
+    return query;
+  };
+
+  const getFullQuery = (tableName, queryIndex, baseQuery) => {
+    const queryWithTime = getQueryWithTimeFilter(
+      baseQuery,
+      tableName,
+      queryIndex
+    );
+    return queryWithTime.trim();
+  };
+
+  const generateQuery = () => {
+    return selectedTables.flatMap((tableName) => {
+      if (externalTablesContent[tableName]) {
+        const queries = externalTablesContent[tableName]
+          .split("////")
+          .map((q) => q.trim())
+          .filter((q) => q);
+        return queries.map((query, queryIndex) => {
+          const fullQuery = getFullQuery(
+            tableName,
+            queryIndex,
+            query.replace("paste_data_from_user_here", searchValue)
+          );
+          return (
+            <div
+              key={`query-${tableName}-${queryIndex}`}
+              id={`query-${tableName}-${queryIndex}`}
+              className="relative bg-gray-800 text-white p-6 mb-6 rounded-lg shadow-md cursor-pointer"
+              onClick={() => navigator.clipboard.writeText(fullQuery)}
+            >
+              <pre className="whitespace-pre-wrap text-lg font-mono">
+                {fullQuery}
+              </pre>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  navigator.clipboard.writeText(fullQuery);
+                }}
+                className="absolute top-2 right-2 bg-gray-700 text-white px-3 py-1 rounded-md hover:bg-gray-600 text-xs"
+              >
+                Copy
+              </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggleFavoriteQuery(tableName, queryIndex);
+                }}
+                className="absolute top-2 right-14 bg-gray-700 text-white px-3 py-1 rounded-md hover:bg-gray-600 text-xs"
+              >
+                {favoriteQueries[tableName]?.includes(queryIndex) ? "❤️" : "🤍"}
+              </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  openExpandModal(tableName, queryIndex, query);
+                }}
+                className="absolute top-2 right-28 bg-gray-700 text-white px-3 py-1 rounded-md hover:bg-gray-600 text-xs"
+              >
+                🔍
+              </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  openEventFilterModal(tableName, queryIndex);
+                }}
+                className="absolute top-2 right-40 bg-gray-700 text-white px-3 py-1 rounded-md hover:bg-gray-600 text-xs"
+                title="Set event time filter"
+              >
+                ⏰
+              </button>
+              <div className="absolute top-2 right-56 flex items-center bg-gray-700 text-white rounded-md">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setApplyTimeFilter((prev) => !prev);
+                  }}
+                  className="px-3 py-1 border-r border-gray-600 hover:bg-gray-600 text-xs"
+                  title="Toggle classic time filter"
+                >
+                  ⏱
+                </button>
+                <input
+                  type="text"
+                  value={timeInterval}
+                  onChange={(e) => {
+                    e.stopPropagation();
+                    setTimeInterval(e.target.value);
+                  }}
+                  className="bg-transparent text-xs p-1 w-28 focus:outline-none"
+                  placeholder="(7d)(3h)(3m)"
+                />
+              </div>
+            </div>
+          );
+        });
+      }
+      const baseQuery = getBaseQuery(tableName);
+      const fullQuery = getFullQuery(tableName, 0, baseQuery);
+      return (
+        <div
+          key={`query-${tableName}-0`}
+          id={`query-${tableName}-0`}
+          className="relative bg-gray-800 text-white p-6 mb-6 rounded-lg shadow-md cursor-pointer"
+          onClick={() => navigator.clipboard.writeText(fullQuery)}
+        >
+          <pre className="whitespace-pre-wrap text-lg font-mono">
+            {fullQuery}
+          </pre>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              navigator.clipboard.writeText(fullQuery);
+            }}
+            className="absolute top-2 right-2 bg-gray-700 text-white px-3 py-1 rounded-md hover:bg-gray-600 text-xs"
+          >
+            Copy
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              toggleFavoriteQuery(tableName, 0);
+            }}
+            className="absolute top-2 right-14 bg-gray-700 text-white px-3 py-1 rounded-md hover:bg-gray-600 text-xs"
+          >
+            {favoriteQueries[tableName]?.includes(0) ? "❤️" : "🤍"}
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              openExpandModal(tableName, 0, baseQuery);
+            }}
+            className="absolute top-2 right-28 bg-gray-700 text-white px-3 py-1 rounded-md hover:bg-gray-600 text-xs"
+          >
+            🔍
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              openEventFilterModal(tableName, 0);
+            }}
+            className="absolute top-2 right-40 bg-gray-700 text-white px-3 py-1 rounded-md hover:bg-gray-600 text-xs"
+            title="Set event time filter"
+          >
+            ⏰
+          </button>
+          <div className="absolute top-2 right-56 flex items-center bg-gray-700 text-white rounded-md">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setApplyTimeFilter((prev) => !prev);
+              }}
+              className="px-3 py-1 border-r border-gray-600 hover:bg-gray-600 text-xs"
+              title="Toggle classic time filter"
+            >
+              ⏱
+            </button>
+            <input
+              type="text"
+              value={timeInterval}
+              onChange={(e) => {
+                e.stopPropagation();
+                setTimeInterval(e.target.value);
+              }}
+              className="bg-transparent text-xs p-1 w-28 focus:outline-none"
+              placeholder="(7d)(3h)(3m)"
+            />
+          </div>
+        </div>
+      );
+    });
+  };
+
+  const renderFavoriteTable = (table) => {
+    const favs = favoriteQueries[table.name] || [];
+    const activeIndex = selectedFavorite[table.name] ?? 0;
+    const isDropdownOpen = favoriteDropdown[table.name] || false;
+    return (
+      <div className="flex items-center justify-between relative">
+        <div className="flex items-center">
+          <span className="mr-2 text-gray-400">☰</span>
+          <button
+            onClick={() => {
+              const el = document.getElementById(
+                `query-${table.name}-${activeIndex}`
+              );
+              if (el) el.scrollIntoView({ behavior: "smooth" });
+            }}
+            className="hover:text-yellow-400 transition"
+          >
+            {table.name}
+          </button>
+          {favs.length >= 1 && (
+            <div className="relative ml-2 favorite-dropdown">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setFavoriteDropdown({
+                    [table.name]: !favoriteDropdown[table.name],
+                  });
+                }}
+                className="bg-blue-600 text-white px-2 py-0.5 rounded focus:outline-none text-xs"
+              >
+                [{favs.length}]
+              </button>
+              {isDropdownOpen && (
+                <div
+                  onClick={(e) => e.stopPropagation()}
+                  className="absolute top-full left-1/2 transform -translate-x-1/2 mt-1 bg-white bg-opacity-80 border rounded shadow-lg z-10 text-black max-h-60 overflow-y-auto min-h-[3rem] w-64 mx-auto"
+                >
+                  <div className="p-2 border-b">
+                    <input
+                      type="text"
+                      placeholder="Filter..."
+                      value={dropdownFilter}
+                      onChange={(e) => setDropdownFilter(e.target.value)}
+                      className="w-full p-2 text-xs"
+                    />
+                  </div>
+                  {(() => {
+                    const filteredFavs = favs.filter((favIndex) => {
+                      const previewText = customFavoriteNames[table.name]?.[
+                        favIndex
+                      ]
+                        ? (
+                            customFavoriteNames[table.name][favIndex]
+                              .customName +
+                            " " +
+                            customFavoriteNames[table.name][favIndex].tags.join(
+                              " "
+                            )
+                          ).toLowerCase()
+                        : table.comment.toLowerCase();
+                      return previewText.includes(dropdownFilter.toLowerCase());
+                    });
+                    if (filteredFavs.length === 0) {
+                      return (
+                        <div className="px-4 py-2 text-gray-400">
+                          No matching queries found
+                        </div>
+                      );
+                    }
+                    return filteredFavs.map((favIndex) => (
+                      <div
+                        key={favIndex}
+                        className="flex items-center justify-between cursor-pointer"
+                        onClick={() => {
+                          setSelectedFavorite((prev) => ({
+                            ...prev,
+                            [table.name]: favIndex,
+                          }));
+                          setFavoriteDropdown({});
+                          setDropdownFilter("");
+                        }}
+                      >
+                        <div className="px-4 py-2 hover:bg-gray-200 flex-1 text-xs">
+                          {customFavoriteNames[table.name] &&
+                          customFavoriteNames[table.name][favIndex]
+                            ? customFavoriteNames[table.name][favIndex]
+                                .customName +
+                              " " +
+                              customFavoriteNames[table.name][
+                                favIndex
+                              ].tags.join(" ")
+                            : table.comment}
+                        </div>
+                        <div className="flex items-center">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setTagModalData({
+                                visible: true,
+                                tableName: table.name,
+                                queryIndex: favIndex,
+                                customName:
+                                  customFavoriteNames[table.name]?.[favIndex]
+                                    ?.customName || "",
+                                tags:
+                                  customFavoriteNames[table.name]?.[favIndex]
+                                    ?.tags || [],
+                              });
+                              setCurrentTag("");
+                            }}
+                            className="px-2 py-1 text-xs text-blue-600 hover:text-blue-800"
+                            title="Edit favorite"
+                          >
+                            ✏️
+                          </button>
+                        </div>
+                      </div>
+                    ));
+                  })()}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const favoriteTables = tables.filter(
+    (table) => favoriteQueries[table.name]?.length
+  );
+  const regularTables = tables.filter(
+    (table) => !favoriteQueries[table.name]?.length
+  );
+  const filteredFavoriteTables = favoriteTables.filter((table) => {
+    if (!favoritesSearch) return true;
+    const searchLower = favoritesSearch.toLowerCase();
+    const favs = favoriteQueries[table.name] || [];
+    for (let i = 0; i < favs.length; i++) {
+      const favObj = customFavoriteNames[table.name]?.[favs[i]];
+      if (favObj) {
+        const searchString = (
+          favObj.customName +
+          " " +
+          favObj.tags.join(" ")
+        ).toLowerCase();
+        if (searchString.includes(searchLower)) return true;
+      } else {
+        if (table.comment.toLowerCase().includes(searchLower)) return true;
+      }
+    }
+    return false;
+  });
+
+  const openExpandModal = (tableName, queryIndex, baseQuery) => {
+    const fullQuery = getFullQuery(tableName, queryIndex, baseQuery);
+    setModalQueryText(fullQuery);
+    setModalOpen(true);
+  };
+
+  const openEventFilterModal = (tableName, queryIndex) => {
+    const existing =
+      eventFilterSettings[tableName] &&
+      eventFilterSettings[tableName][queryIndex];
+    if (existing) {
+      setEventFilterSettings((prev) => {
+        const newSettings = { ...prev };
+        if (newSettings[tableName]) {
+          delete newSettings[tableName][queryIndex];
+          if (Object.keys(newSettings[tableName]).length === 0)
+            delete newSettings[tableName];
+        }
+        return newSettings;
+      });
+      return;
+    } else {
+      setEventFilterModal({
+        visible: true,
+        tableName,
+        queryIndex,
+        eventTime: new Date().toISOString().slice(0, 19).replace("T", " "),
+        offsetBefore: 2,
+        offsetAfter: 2,
+      });
+    }
+  };
+
+  const handleSaveEventFilterModal = () => {
+    const { tableName, queryIndex, eventTime, offsetBefore, offsetAfter } =
+      eventFilterModal;
+    setEventFilterSettings((prev) => ({
+      ...prev,
+      [tableName]: {
+        ...prev[tableName],
+        [queryIndex]: { eventTime, offsetBefore, offsetAfter },
+      },
+    }));
+    setEventFilterModal({
+      visible: false,
+      tableName: "",
+      queryIndex: null,
+      eventTime: new Date().toISOString().slice(0, 19).replace("T", " "),
+      offsetBefore: 2,
+      offsetAfter: 2,
+    });
+  };
+
+  const handleCancelEventFilterModal = () => {
+    setEventFilterModal({
+      visible: false,
+      tableName: "",
+      queryIndex: null,
+      eventTime: new Date().toISOString().slice(0, 19).replace("T", " "),
+      offsetBefore: 2,
+      offsetAfter: 2,
+    });
+  };
+
+  const openAddTileModal = (tile = null) => {
+    if (tile) {
+      setEditingTile(tile);
+      setNewTileName(tile.label);
+      setNewTileQuery(tile.query);
+    } else {
+      setEditingTile(null);
+      setNewTileName("");
+      setNewTileQuery("");
+    }
+    setShowAddTileModal(true);
+  };
+
+  const renderSmartTiles = () => {
+    return generateSmartButtons().map((tile) => {
+      const finalQuery =
+        tile.query && tile.query.includes('| search ""')
+          ? tile.query.replace(
+              /(\| search\s*\"\")/g,
+              `| search "${searchValue}"`
+            )
+          : tile.query || "";
+      const isCustomTile =
+        tile.id !== "tile-all" && tile.id !== "tile-mfa" && !tile.isPlus;
+      return (
+        <div key={tile.id} className="relative inline-block">
+          <button
+            onClick={() => {
+              if (tile.isPlus) {
+                openAddTileModal();
+              } else {
+                navigator.clipboard.writeText(finalQuery);
+              }
+            }}
+            onDoubleClick={() => {
+              if (isCustomTile) {
+                openAddTileModal(tile);
+              }
+            }}
+            className="w-48 py-2 px-3 bg-blue-400 hover:bg-blue-500 text-white text-sm font-medium rounded-lg shadow transition"
+            title={tile.label}
+          >
+            {tile.label}
+          </button>
+        </div>
+      );
+    });
+  };
+
+  const generateSmartButtons = () => {
+    const predefinedTiles = [
+      {
+        id: "tile-all",
+        label: "Check all tables in last 12h",
+        query: `search "${searchValue}"
+| where TimeGenerated > ago(12h)
+| summarize count() by $table`,
+      },
+      {
+        id: "tile-mfa",
+        label: "Check MFA last 24h",
+        query: `SigninLogs
+| search "${searchValue}"
+| where TimeGenerated > ago(24h)
+| extend displayName_ = tostring(DeviceDetail.displayName),
+         browser_ = tostring(DeviceDetail.browser),
+         operatingSystem_ = tostring(DeviceDetail.operatingSystem),
+         UserPrincipalName1 = tostring(UserPrincipalName),
+         MFA_Step_Requirement = tostring(parse_json(AuthenticationDetails)[1].authenticationStepRequirement),
+         MFA_Succeeded = tostring(parse_json(AuthenticationDetails)[1].succeeded),
+         authMethod_ = tostring(MfaDetail.authMethod),
+         additionalDetails_ = tostring(Status.additionalDetails),
+         vt_table = strcat("https://www.virustotal.com/gui/ip-address/", IPAddress),
+         Country = tostring(geo_info_from_ip_address(IPAddress).country)
+| project TimeGenerated, IPAddress, vt_table, AppDisplayName, UserPrincipalName, authMethod_, additionalDetails_, ResultSignature, ConditionalAccessStatus, displayName_, operatingSystem_, browser_`,
+      },
+    ];
+    return [
+      ...predefinedTiles,
+      ...customTiles,
+      { id: "tile-plus", label: "+", isPlus: true },
+    ];
+  };
+
+  const handleDragStartWrapper = (e, position, tableList) => {
+    dragItem.current = position;
+    e.dataTransfer.effectAllowed = "move";
+    setTimeout(() => {
+      e.target.classList.add("opacity-50");
+    }, 0);
+  };
+
+  const handleDragEnter = (e, position) => {
+    dragOverItem.current = position;
+    e.preventDefault();
+    e.target.classList.add("bg-gray-700");
+  };
+
+  const handleDragLeave = (e) => {
+    e.target.classList.remove("bg-gray-700");
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+  };
+
+  const handleDragEnd = (e, tableList, setTableList) => {
+    e.target.classList.remove("opacity-50");
+    if (dragItem.current === dragOverItem.current) return;
+    const _tableList = [...tableList];
+    const draggedItem = _tableList.splice(dragItem.current, 1)[0];
+    _tableList.splice(dragOverItem.current, 0, draggedItem);
+    dragItem.current = null;
+    dragOverItem.current = null;
+    setTableList(_tableList);
+  };
+
+  const removeTable = (tableName) => {
+    setTables((prev) => prev.filter((t) => t.name !== tableName));
+    setSelectedTables((prev) => prev.filter((t) => t !== tableName));
+  };
+
+  function closeModal() {
+    setModalOpen(false);
+    setModalQueryText("");
+  }
+
+  return (
+    <div className="min-h-screen flex flex-col">
+      <div style={{ display: "none" }}>
+        kql, kql search, microsoft, sc-200, kql generator, kql tool, security
+        analyst, microsoft defender kql, sentinel, sentinel kql
+      </div>
+      {tagModalData.visible && (
+        <div
+          onClick={handleCloseModalOnClickOutside(() =>
+            setTagModalData({
+              visible: false,
+              tableName: "",
+              queryIndex: null,
+              customName: "",
+              tags: [],
+            })
+          )}
+          className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white p-6 rounded-lg shadow-lg max-w-md w-full"
+          >
+            <h3 className="text-xl font-bold mb-4">Add Name / Tags</h3>
+            <input
+              type="text"
+              placeholder="Name (optional)"
+              value={tagModalData.customName}
+              maxLength="40"
+              onChange={(e) =>
+                setTagModalData((prev) => ({
+                  ...prev,
+                  customName: e.target.value,
+                }))
+              }
+              className="w-full p-2 border border-gray-300 rounded mb-4"
+            />
+            <div className="mb-4">
+              <div className="flex flex-wrap gap-2 mb-2">
+                {tagModalData.tags.map((t, index) => (
+                  <div
+                    key={index}
+                    className="bg-yellow-200 text-yellow-700 px-2 py-1 rounded cursor-pointer"
+                    onDoubleClick={() => handleAddTag(index)}
+                  >
+                    #{t}
+                  </div>
+                ))}
+              </div>
+              <div className="flex items-center">
+                <input
+                  type="text"
+                  placeholder="Tag"
+                  value={currentTag}
+                  onChange={(e) => setCurrentTag(e.target.value)}
+                  onKeyDown={handleTagInputKeyDown}
+                  className="w-full p-2 border border-gray-300 rounded"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end">
+              <button
+                onClick={handleAddTag}
+                className="px-4 py-2 bg-indigo-600 text-white rounded mr-2"
+              >
+                Add
+              </button>
+              <button
+                onClick={() =>
+                  setTagModalData({
+                    visible: false,
+                    tableName: "",
+                    queryIndex: null,
+                    customName: "",
+                    tags: [],
+                  })
+                }
+                className="px-4 py-2 bg-gray-600 text-white rounded"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {eventFilterModal.visible && (
+        <div
+          onClick={handleCloseModalOnClickOutside(() =>
+            setEventFilterModal({ ...eventFilterModal, visible: false })
+          )}
+          className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white p-6 rounded-lg shadow-lg max-w-md w-full"
+          >
+            <h3 className="text-xl font-bold mb-4">Set Event Time Filter</h3>
+            <div className="mb-2">
+              <label className="block mb-1">
+                Date and Time (e.g., 2025-03-28 12:00:00):
+              </label>
+              <input
+                type="text"
+                value={eventFilterModal.eventTime}
+                onChange={(e) =>
+                  setEventFilterModal((prev) => ({
+                    ...prev,
+                    eventTime: e.target.value,
+                  }))
+                }
+                className="w-full p-2 border border-gray-300 rounded"
+              />
+            </div>
+            <div className="mb-2">
+              <label className="block mb-1">Offset Before (minutes):</label>
+              <input
+                type="number"
+                value={eventFilterModal.offsetBefore}
+                onChange={(e) =>
+                  setEventFilterModal((prev) => ({
+                    ...prev,
+                    offsetBefore: Number(e.target.value),
+                  }))
+                }
+                className="w-full p-2 border border-gray-300 rounded"
+              />
+            </div>
+            <div className="mb-4">
+              <label className="block mb-1">Offset After (minutes):</label>
+              <input
+                type="number"
+                value={eventFilterModal.offsetAfter}
+                onChange={(e) =>
+                  setEventFilterModal((prev) => ({
+                    ...prev,
+                    offsetAfter: Number(e.target.value),
+                  }))
+                }
+                className="w-full p-2 border border-gray-300 rounded"
+              />
+            </div>
+            <div className="flex justify-end">
+              <button
+                onClick={handleSaveEventFilterModal}
+                className="px-4 py-2 bg-indigo-600 text-white rounded mr-2"
+              >
+                Save
+              </button>
+              <button
+                onClick={handleCancelEventFilterModal}
+                className="px-4 py-2 bg-gray-600 text-white rounded"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {showAddTileModal && (
+        <div
+          onClick={handleCloseModalOnClickOutside(() =>
+            setShowAddTileModal(false)
+          )}
+          className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50"
+        >
+          <div
+            ref={tileModalRef}
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: tileModalSize.width,
+              height: tileModalSize.height,
+              position: "relative",
+            }}
+            className="bg-white p-6 rounded-lg shadow-lg flex flex-col"
+          >
+            <h3 className="text-xl font-bold mb-4">
+              {editingTile ? "Edit Quick Query" : "Add New Quick Query"}
+            </h3>
+            <p className="mb-4 text-sm text-gray-700">
+              {editingTile
+                ? "Update or remove your custom quick query."
+                : 'Add a title and paste your KQL query. You can include | search "" to add data from the main dashboard.'}
+            </p>
+            <input
+              type="text"
+              placeholder="Tile Name"
+              value={newTileName}
+              onChange={(e) => setNewTileName(e.target.value)}
+              maxLength={20}
+              className="w-full p-2 border border-gray-300 rounded mb-4"
+            />
+            <textarea
+              placeholder="Paste your KQL query here..."
+              value={newTileQuery}
+              onChange={(e) => setNewTileQuery(e.target.value)}
+              className="w-full p-2 border border-gray-300 rounded-md mb-4 flex-grow"
+            />
+            <div className="flex justify-end space-x-2">
+              {editingTile && (
+                <button
+                  onClick={() => {
+                    setCustomTiles((prev) =>
+                      prev.filter((t) => t.id !== editingTile.id)
+                    );
+                    setShowAddTileModal(false);
+                  }}
+                  className="px-4 py-2 bg-red-600 text-white rounded"
+                >
+                  Delete
+                </button>
+              )}
+              <button
+                onClick={() => {
+                  if (editingTile) {
+                    setCustomTiles((prev) =>
+                      prev.map((t) =>
+                        t.id === editingTile.id
+                          ? {
+                              ...t,
+                              label: newTileName.trim(),
+                              query: newTileQuery,
+                            }
+                          : t
+                      )
+                    );
+                  } else {
+                    if (!newTileQuery.trim()) return;
+                    const tile = {
+                      id: `tile-${Date.now()}`,
+                      label: newTileName.trim() || "Custom Tile",
+                      query: newTileQuery,
+                    };
+                    setCustomTiles((prev) => [...prev, tile]);
+                  }
+                  setShowAddTileModal(false);
+                }}
+                className="px-4 py-2 bg-indigo-600 text-white rounded"
+              >
+                {editingTile ? "Update" : "Add"}
+              </button>
+              <button
+                onClick={() => setShowAddTileModal(false)}
+                className="px-4 py-2 bg-gray-600 text-white rounded"
+              >
+                Cancel
+              </button>
+            </div>
+            <div
+              onMouseDown={() => setIsTileResizing(true)}
+              style={{
+                width: "20px",
+                height: "20px",
+                position: "absolute",
+                right: "0",
+                bottom: "0",
+                cursor: "nwse-resize",
+                backgroundColor: "transparent",
+              }}
+            />
+          </div>
+        </div>
+      )}
+      <aside className="bg-gray-800 text-white p-4 fixed inset-y-0 left-0 w-80 overflow-y-auto">
+        <div className="flex flex-col h-full">
+          <div className="flex-1">
+            <h2 className="text-lg font-bold mb-4">Favorite Tables</h2>
+            <input
+              type="text"
+              placeholder="Search by name and tags..."
+              value={favoritesSearch}
+              onChange={(e) => setFavoritesSearch(e.target.value)}
+              className="w-full p-2 border border-gray-300 rounded mb-4 text-black"
+            />
+            <ul>
+              {filteredFavoriteTables.map((table) => (
+                <li
+                  key={table.name}
+                  className="py-1 border-b border-gray-600 cursor-move"
+                  draggable
+                  onDragStart={(e) =>
+                    handleDragStartWrapper(
+                      e,
+                      table.name,
+                      filteredFavoriteTables
+                    )
+                  }
+                  onDragEnter={(e) => handleDragEnter(e, table.name)}
+                  onDragLeave={handleDragLeave}
+                  onDragOver={handleDragOver}
+                  onDragEnd={(e) =>
+                    handleDragEnd(e, filteredFavoriteTables, (newList) => {
+                      setTables([...newList, ...regularTables]);
+                    })
+                  }
+                >
+                  {renderFavoriteTable(table)}
+                </li>
+              ))}
+            </ul>
+            <h2 className="text-lg font-bold mt-6 mb-4">Table Navigation</h2>
+            <ul>
+              {tables.map((table, index) => (
+                <li
+                  key={table.name}
+                  className="py-1 border-b border-gray-600"
+                  draggable
+                  onDragStart={(e) => handleDragStartWrapper(e, index, tables)}
+                  onDragEnter={(e) => handleDragEnter(e, index)}
+                  onDragLeave={handleDragLeave}
+                  onDragOver={handleDragOver}
+                  onDragEnd={(e) => handleDragEnd(e, tables, setTables)}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center">
+                      <span className="mr-2 text-gray-400">☰</span>
+                      <button
+                        onClick={() => {
+                          const activeIdx = selectedFavorite[table.name] ?? 0;
+                          const el = document.getElementById(
+                            `query-${table.name}-${activeIdx}`
+                          );
+                          if (el) el.scrollIntoView({ behavior: "smooth" });
+                        }}
+                        className="hover:text-yellow-400 transition"
+                      >
+                        {table.name}
+                      </button>
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div className="mt-6">
+            <button
+              onClick={() => setShowSettingsPanel(!showSettingsPanel)}
+              className="w-full py-3 bg-purple-600 text-white font-semibold rounded-md"
+            >
+              Settings – import or export settings
+            </button>
+            {showSettingsPanel && (
+              <div className="mt-4 p-4 bg-gray-700 rounded-md">
+                <h3 className="text-xl font-bold mb-2">Settings</h3>
+                <textarea
+                  className="w-full p-2 border border-gray-300 rounded mb-2 focus:ring-2 focus:ring-indigo-500 text-black"
+                  value={settingsData}
+                  onChange={handleSettingsDataChange}
+                  placeholder="Paste settings JSON here"
+                  rows={6}
+                />
+                <input
+                  type="text"
+                  placeholder="Enter settings URL (e.g., GitHub raw URL)"
+                  value={settingsURL}
+                  onChange={(e) => setSettingsURL(e.target.value)}
+                  className="w-full p-2 border border-gray-300 rounded mb-2 focus:ring-2 focus:ring-indigo-500 text-black"
+                />
+                <div className="flex flex-wrap gap-3">
+                  <button
+                    onClick={handleLoadFromURL}
+                    className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition"
+                  >
+                    Load Settings from URL
+                  </button>
+                  <button
+                    onClick={handleImportSettings}
+                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition"
+                  >
+                    Import settings you pasted above
+                  </button>
+                  <button
+                    onClick={handleDownloadSettings}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+                  >
+                    Download Settings
+                  </button>
+                  <button
+                    onClick={clearAllSettings}
+                    className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition"
+                  >
+                    Clear All Settings
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </aside>
+      <main className="p-6 flex-1" style={{ marginLeft: "320px" }}>
+        <div className="max-w-3xl bg-white p-6 rounded-lg shadow-lg">
+          <button
+            onClick={defineTablesFromEnv}
+            className="w-full py-3 bg-indigo-600 text-white font-semibold rounded-md mb-6"
+          >
+            Define your tables from your environment
+          </button>
+          {showPopup && (
+            <div
+              onClick={handleCloseModalOnClickOutside(closePopup)}
+              className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50"
+            >
+              <div
+                onClick={(e) => e.stopPropagation()}
+                className="bg-white p-6 rounded-lg shadow-lg max-w-md w-full"
+              >
+                <h3 className="text-xl font-bold mb-4">
+                  Define your tables from your environment
+                </h3>
+                <p className="mb-4 text-sm text-gray-700">
+                  Run the following query in Sentinel (or Advanced Threat
+                  Hunting in Defender) and paste the result. Ensure that each
+                  table is on a new line, then click "Add Your Tables".
+                </p>
+                <div className="relative bg-gray-900 text-white p-4 mb-4 rounded-md">
+                  <pre className="whitespace-pre-wrap text-sm">
+                    {`search *
+| where TimeGenerated >= ago(30d)
+| distinct $table`}
+                  </pre>
+                  <button
+                    onClick={() =>
+                      navigator.clipboard.writeText(
+                        `search *\n| where TimeGenerated >= ago(30d)\n| distinct $table`
+                      )
+                    }
+                    className="absolute top-2 right-2 bg-gray-700 text-white px-2 py-0.5 rounded text-xs hover:bg-gray-600"
+                  >
+                    Copy
+                  </button>
+                </div>
+                <textarea
+                  className="w-full p-3 border border-gray-300 rounded-md mt-4 h-48"
+                  placeholder="Paste result here"
+                  value={copiedResult}
+                  onChange={(e) => setCopiedResult(e.target.value)}
+                />
+                <div className="flex justify-end mt-4">
+                  <button
+                    onClick={handleAddTables}
+                    className="px-4 py-2 bg-green-600 text-white rounded-md mr-2"
+                  >
+                    Add Your Tables
+                  </button>
+                  <button
+                    onClick={closePopup}
+                    className="px-4 py-2 bg-gray-600 text-white rounded-md"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+          <h2 className="text-xl font-bold mb-4">Paste data to search:</h2>
+          <input
+            type="text"
+            placeholder="Paste your data..."
+            value={searchValue}
+            onChange={(e) => setSearchValue(e.target.value)}
+            className="w-full p-3 border border-gray-300 rounded-md mb-4"
+          />
+          <div className="mb-6 p-4 bg-blue-100 border border-blue-300 rounded">
+            <p className="text-sm">
+              Recommendations: Use the quick title copy for your most common
+              queries or notes. With a single click, the data will be copied and
+              ready to paste. With a double click, you can remove or update the
+              name or queries. To add a new tile, simply click the [ + ] button.
+              😊👍
+            </p>
+          </div>
+          <div className="mb-4 grid grid-cols-3 gap-2">
+            {renderSmartTiles()}
+          </div>
+          <h2 className="text-xl font-bold mb-4">Select available tables:</h2>
+          <div
+            className="relative bg-white p-4 rounded-md shadow overflow-hidden"
+            style={{ maxWidth: "600px", width: "100%" }}
+          >
+            <div
+              ref={tablesContainerRef}
+              className="grid gap-2 overflow-x-auto px-4 hide-scrollbar"
+              style={{
+                gridAutoFlow: "column",
+                gridTemplateRows: "repeat(6, auto)",
+              }}
+            >
+              {tables.map((table) => (
+                <div
+                  key={table.name}
+                  className={`flex items-center justify-between space-x-1 p-1 border border-gray-300 rounded ${
+                    selectedTables.includes(table.name) ? "bg-indigo-100" : ""
+                  }`}
+                >
+                  <div className="flex items-center space-x-1">
+                    <input
+                      type="checkbox"
+                      checked={selectedTables.includes(table.name)}
+                      onChange={() =>
+                        setSelectedTables((prev) =>
+                          prev.includes(table.name)
+                            ? prev.filter((t) => t !== table.name)
+                            : [...prev, table.name]
+                        )
+                      }
+                      className="h-4 w-4 border-gray-300 rounded"
+                    />
+                    <span className="text-xs whitespace-nowrap overflow-hidden">
+                      {table.name}
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => removeTable(table.name)}
+                    className="text-xs text-red-500 hover:text-red-700"
+                    title="Remove table"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+            <button
+              onClick={() => {
+                tablesContainerRef.current &&
+                  tablesContainerRef.current.scrollBy({
+                    left: -200,
+                    behavior: "smooth",
+                  });
+              }}
+              className="absolute left-2 top-1/2 transform -translate-y-1/2 z-10 bg-gray-200 rounded-full p-2 hover:bg-gray-300"
+            >
+              {"<"}
+            </button>
+            <button
+              onClick={() => {
+                tablesContainerRef.current &&
+                  tablesContainerRef.current.scrollBy({
+                    left: 200,
+                    behavior: "smooth",
+                  });
+              }}
+              className="absolute right-2 top-1/2 transform -translate-y-1/2 z-10 bg-gray-200 rounded-full p-2 hover:bg-gray-300"
+            >
+              {">"}
+            </button>
+          </div>
+          <h2 className="text-xl font-bold mt-6 mb-4">Add a new table:</h2>
+          <input
+            type="text"
+            placeholder="Table name"
+            value={newTableName}
+            onChange={(e) => setNewTableName(e.target.value)}
+            className="w-full p-3 border border-gray-300 rounded-md mb-2"
+          />
+          <textarea
+            placeholder={`📌 Paste the full KQL query. If you add the statement: 
+| search "" 
+to your query, the data you entered above will be included. 
+For example: 
+👨‍🎓
+CustomEmailGateWay
+| search "customfilename"
+| where Timestamp >= ago(30d)
+| project TimeGenerated, Subject, SenderEmailAddress, RecipientEmailAddress 
+👨‍🎓`}
+            value={newTableQuery}
+            onChange={(e) => setNewTableQuery(e.target.value)}
+            className="w-full p-3 border border-gray-300 rounded-md mb-4 h-48"
+          />
+          <button
+            onClick={addNewTable}
+            className="w-full py-3 bg-indigo-600 text-white font-semibold rounded-md"
+          >
+            Add Table
+          </button>
+          <div className="flex items-center justify-between mt-6 mb-4">
+            <h2 className="text-xl font-bold">
+              How to Use Generated Query feature
+            </h2>
+            <div>
+              <button
+                onClick={() => setShowGuide((prev) => !prev)}
+                className="px-3 py-1 bg-gray-700 text-white rounded-md text-sm"
+              >
+                {showGuide ? "Hide Guide" : "Show Guide"}
+              </button>
+              {showGuide && (
+                <button
+                  onClick={() => {
+                    setShowGuide(false);
+                    localStorage.setItem(
+                      "kqltool_showGuide",
+                      JSON.stringify(false)
+                    );
+                  }}
+                  className="ml-2 px-3 py-1 bg-red-600 text-white rounded-md text-sm"
+                >
+                  Don't show again
+                </button>
+              )}
+            </div>
+          </div>
+          {showGuide && (
+            <div className="mb-6 p-4 bg-blue-100 border border-blue-300 rounded">
+              <ul className="list-disc ml-6 text-sm">
+                <li>
+                  <span role="img" aria-label="clock">
+                    ⏰
+                  </span>{" "}
+                  Click the clock icon to adjust the time (e.g., data from the
+                  last 24 hours).
+                </li>
+                <li>
+                  <span role="img" aria-label="watch">
+                    ⌚
+                  </span>{" "}
+                  Use the second watch icon to set specific time ranges.
+                </li>
+                <li>
+                  <span role="img" aria-label="loupe">
+                    🔍
+                  </span>{" "}
+                  Click the loupe to see the full query, highlighted for easy
+                  copying.
+                </li>
+                <li>
+                  <span role="img" aria-label="heart">
+                    ❤️
+                  </span>{" "}
+                  Click the heart icon to add the query to your favorites.
+                </li>
+                <li>
+                  <span role="img" aria-label="copy">
+                    📋
+                  </span>{" "}
+                  The copy button copies the entire query.
+                </li>
+              </ul>
+            </div>
+          )}
+          <h2 className="text-xl font-bold mt-6 mb-4">Generated Query:</h2>
+          <div className="space-y-4">{generateQuery()}</div>
+        </div>
+      </main>
+      {modalOpen && (
+        <div
+          onClick={handleCloseModalOnClickOutside(closeModal)}
+          className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white p-6 rounded-lg shadow-lg max-w-4xl w-full max-h-[90vh] flex flex-col"
+          >
+            <h3 className="text-xl font-bold mb-4">Full Query</h3>
+            <div className="flex-grow overflow-auto">
+              <TextareaAutosize
+                className="w-full bg-gray-100 text-sm font-mono border p-4 rounded-md resize-none outline-none"
+                value={modalQueryText}
+                readOnly
+                ref={modalTextRef}
+              />
+            </div>
+            <div className="flex justify-end mt-4">
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(modalQueryText);
+                  closeModal();
+                }}
+                className="px-4 py-2 bg-indigo-600 text-white rounded-md mr-2"
+              >
+                Copy Query
+              </button>
+              <button
+                onClick={closeModal}
+                className="px-4 py-2 bg-gray-600 text-white rounded-md"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
